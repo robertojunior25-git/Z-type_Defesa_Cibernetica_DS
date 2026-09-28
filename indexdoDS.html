@@ -1,0 +1,579 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Z-Type: Defesa Cibernética</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body, html {
+            width: 100%;
+            height: 100%;
+            background-color: #020208;
+            color: #fff;
+            font-family: 'Courier New', Courier, monospace;
+            overflow: hidden; 
+            user-select: none; 
+        }
+        #gameCanvas {
+            display: block;
+            width: 100%;
+            height: 100%;
+        }
+        .tela-sobreposta {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            background: rgba(0, 0, 10, 0.9); 
+            z-index: 10;
+        }
+        .escondido { display: none !important; }
+        h1 {
+            font-size: 4rem;
+            color: #0f0;
+            text-shadow: 0 0 20px #0f0;
+            margin-bottom: 20px;
+            text-align: center;
+        }
+        p { font-size: 1.2rem; margin-bottom: 30px; text-align: center; color: #ccc; max-width: 600px; line-height: 1.5; }
+        button {
+            background: rgba(0, 255, 0, 0.1);
+            color: #0f0;
+            border: 2px solid #0f0;
+            padding: 15px 40px;
+            font-size: 1.5rem;
+            font-family: 'Courier New', Courier, monospace;
+            font-weight: bold;
+            cursor: pointer;
+            border-radius: 8px;
+            text-transform: uppercase;
+            transition: all 0.2s;
+        }
+        button:hover { background: #0f0; color: #000; box-shadow: 0 0 20px #0f0; }
+        #hud {
+            position: absolute;
+            top: 20px;
+            left: 20px;
+            right: 20px;
+            display: flex;
+            justify-content: space-between;
+            font-size: 1.5rem;
+            color: #fff;
+            z-index: 5;
+            pointer-events: none;
+            text-shadow: 0 0 10px #0f0;
+        }
+        .alvo-texto { color: #ff0; font-weight: bold; text-shadow: 0 0 10px #ff0; }
+        .vida-texto { color: #f00; text-shadow: 0 0 10px #f00; }
+        .fase-texto { color: #0ff; text-shadow: 0 0 10px #0ff; }
+    </style>
+</head>
+<body>
+
+    <!-- HUD (Heads-Up Display) para dados em tempo real -->
+    <div id="hud" class="escondido">
+        <div>FASE: <span id="faseHtml" class="fase-texto">1</span> | PONTOS: <span id="pontuacaoHtml">0</span></div>
+        <div>VIDAS: <span id="vidasHtml" class="vida-texto">3</span></div>
+    </div>
+
+    <!-- Tela Inicial -->
+    <div id="telaInicial" class="tela-sobreposta">
+        <h1>DEFESA CIBERNÉTICA</h1>
+        <p>Digite os termos de informática para destruir as ameaças.<br>
+        <span class="alvo-texto">Trave a mira na primeira letra.</span> Não deixe tocarem no servidor!</p>
+        <button id="btnIniciar">Iniciar Conexão</button>
+    </div>
+
+    <!-- Tela de Game Over -->
+    <div id="telaFim" class="tela-sobreposta escondido">
+        <h1 style="color:#f00; text-shadow:0 0 20px #f00;">SISTEMA COMPROMETIDO</h1>
+        <p>O servidor foi destruído pelas ameaças.<br>
+        Fase Alcançada: <span id="faseFinal" class="fase-texto">1</span><br>
+        Pontuação Final: <span id="pontuacaoFinal" class="alvo-texto">0</span></p>
+        <button id="btnReiniciar" style="border-color:#f00; color:#f00;">Reboot do Sistema</button>
+    </div>
+
+    <!-- Canvas onde o jogo é renderizado -->
+    <canvas id="gameCanvas"></canvas>
+
+    <script>
+        const canvas = document.getElementById('gameCanvas'); // Pega o elemento visual do canvas no HTML.
+        const ctx = canvas.getContext('2d'); // Define o contexto de pintura para 2D (formas e textos).
+        
+        const telaInicial = document.getElementById('telaInicial'); // Pega a div da tela inicial.
+        const telaFim = document.getElementById('telaFim'); // Pega a div da tela de game over.
+        const hud = document.getElementById('hud'); // Pega a div do painel de informações.
+        
+        const pontuacaoHtml = document.getElementById('pontuacaoHtml'); // Elemento HTML que mostra pontos.
+        const vidasHtml = document.getElementById('vidasHtml'); // Elemento HTML que mostra as vidas.
+        const faseHtml = document.getElementById('faseHtml'); // Elemento HTML que mostra a fase atual.
+        const pontuacaoFinal = document.getElementById('pontuacaoFinal'); // Elemento para pontos na tela de morte.
+        const faseFinal = document.getElementById('faseFinal'); // Elemento para fase na tela de morte.
+        
+        // Dicionário de informática (sem acentos para facilitar a digitação ágil em jogos).
+        const dicionario = ["ADMINISTRACAO", "PLANILHA", "EXCEL", "SALDOS", "WORD", "CONTA", "LANCAMENTOS", "ENTRADA", "SAIDA", "VENDAS", "PAGAMENTOS", "CREDITO", "DEBITO", "JUROS", "EMPRESA"]; // Matriz com 15 termos técnicos.
+        
+        let larguraTela, alturaTela; // Variáveis que vão guardar o tamanho da janela.
+        let jogoRodando = false; // Flag de controle mestre do laço de repetição.
+        let idAnimacao; // Guarda o ID do frame para podermos pausar a tela depois.
+        
+        let pontuacao = 0; // Armazena os pontos totais.
+        let vidas = 3; // Define as vidas iniciais do servidor/jogador.
+        let fase = 1; // Define a fase inicial.
+        let pontosParaProximaFase = 500; // Define o limiar de pontos para subir de fase.
+        let progressoFase = 0; // Acumulador de pontos específico para checar a mudança de fase.
+        
+        let inimigos = []; // Lista vazia que guardará as palavras ativas caindo.
+        let lasers = []; // Lista vazia que guardará os raios desenhados na tela.
+        let estrelas = []; // Lista vazia para os pontos de fundo simulando dados/espaço.
+        let particulas = []; // Lista vazia para as faíscas de explosão.
+        
+        let alvoAtual = null; // Aponta para qual palavra o jogador travou a mira (começa nulo).
+        
+        let velocidadeBase = 0.2; // Dificuldade inicial: velocidade muito lenta de queda.
+        let taxaSpawn = 4000; // Dificuldade inicial: demora 4 segundos pra nascer outra palavra.
+        let tempoUltimoSpawn = 0; // Marca no relógio quando nasceu a última ameaça.
+
+        const jogador = { x: 0, y: 0 }; // Objeto estrutural para as coordenadas do canhão central.
+
+        let audioCtx; // Declarando a variável do sintetizador de áudio.
+
+        function iniciarAudio() { // Função que desperta a placa de som virtual.
+            if (!audioCtx) { // Se o contexto sonoro ainda não foi criado na memória...
+                audioCtx = new (window.AudioContext || window.webkitAudioContext)(); // Instancia a API nativa do navegador.
+            } // Fim do bloco if.
+            if (audioCtx.state === 'suspended') { // Se o Chrome/Firefox pausou o som por falta de interação...
+                audioCtx.resume(); // Força o motor de áudio a acordar.
+            } // Fim do bloco if de segurança.
+        } // Fim da função de inicialização de som.
+
+        function tocarSomLaser() { // Cria som de disparo eletrônico agudo.
+            if (!audioCtx) return; // Aborta se o áudio não foi inicializado.
+            const osc = audioCtx.createOscillator(); // Instancia um gerador de onda sonora.
+            const ganho = audioCtx.createGain(); // Instancia um controle de volume.
+            osc.type = 'square'; // Tipo de onda quadrada (timbre de fliperama 8-bits).
+            osc.frequency.setValueAtTime(800, audioCtx.currentTime); // Inicia com tom bem alto e agudo.
+            osc.frequency.exponentialRampToValueAtTime(100, audioCtx.currentTime + 0.1); // Escorrega o tom pro grave quase instantaneamente.
+            ganho.gain.setValueAtTime(0.1, audioCtx.currentTime); // Volume começa audível, mas baixo (0.1 de 1.0).
+            ganho.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.1); // Zera o volume no fim do efeito.
+            osc.connect(ganho); // Pluga o gerador de som no controle de volume.
+            ganho.connect(audioCtx.destination); // Pluga o volume na saída mestre (caixa de som).
+            osc.start(); // Dá o play na nota sintetizada.
+            osc.stop(audioCtx.currentTime + 0.1); // Agenda o fim sonoro para 100ms depois.
+        } // Fim da função do laser.
+
+        function tocarSomErro() { // Cria som de bipe grosso e seco para quando errar a tecla.
+            if (!audioCtx) return; // Checa integridade do contexto áudio.
+            const osc = audioCtx.createOscillator(); // Cria o gerador.
+            const ganho = audioCtx.createGain(); // Cria o volume.
+            osc.type = 'sawtooth'; // Onda dente-de-serra que é áspera e irritante.
+            osc.frequency.setValueAtTime(150, audioCtx.currentTime); // Nota grave e constante.
+            ganho.gain.setValueAtTime(0.2, audioCtx.currentTime); // Volume médio/alto.
+            ganho.gain.linearRampToValueAtTime(0.01, audioCtx.currentTime + 0.15); // Abaixa a zero em 150ms.
+            osc.connect(ganho); // Encadeia os módulos.
+            ganho.connect(audioCtx.destination); // Encadeia para saída mestre.
+            osc.start(); // Começa o barulho.
+            osc.stop(audioCtx.currentTime + 0.15); // Corta rápido.
+        } // Fim da função de erro.
+
+        function tocarSomExplosao() { // Gera ruído branco para parecer estouro de fumaça.
+            if (!audioCtx) return; // Trava de segurança.
+            const bufferTamanho = audioCtx.sampleRate * 0.4; // Define tamanho de dados para 0.4 segundos de áudio.
+            const buffer = audioCtx.createBuffer(1, bufferTamanho, audioCtx.sampleRate); // Fabrica a fita cassete virtual na memória.
+            const dados = buffer.getChannelData(0); // Acessa os dados magnéticos do canal 1 dessa fita.
+            for (let i = 0; i < bufferTamanho; i++) { // Laço percorrendo cada amostra de áudio minúscula.
+                dados[i] = Math.random() * 2 - 1; // Sorteia ruído caótico entre -1.0 e 1.0.
+            } // Fim do for gerador de entropia.
+            const fonteRuido = audioCtx.createBufferSource(); // Cria o tocador virtual.
+            fonteRuido.buffer = buffer; // Insere a fita caótica no tocador.
+            const filtro = audioCtx.createBiquadFilter(); // Cria um filtro equalizador.
+            filtro.type = 'lowpass'; // Filtro passa-baixa: abafa os agudos irritantes.
+            filtro.frequency.value = 1000; // Deixa passar só de 1000 Hertz pra baixo (som grave de BUM).
+            const ganho = audioCtx.createGain(); // Cria botão de volume.
+            ganho.gain.setValueAtTime(0.3, audioCtx.currentTime); // Inicia som estrondoso médio.
+            ganho.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.4); // Desvanece rápido simulando dissipação.
+            fonteRuido.connect(filtro); // Liga ruído no equalizador.
+            filtro.connect(ganho); // Liga equalizador no volume.
+            ganho.connect(audioCtx.destination); // Volume na caixa acústica.
+            fonteRuido.start(); // Dispara o estrondo.
+        } // Fim da função de explosão orgânica.
+
+        function tocarSomDano() { // Som pra quando a base toma porrada (perde vida).
+            if (!audioCtx) return; // Prevenção de erro nulo.
+            const osc = audioCtx.createOscillator(); // Cria o apito mestre.
+            const ganho = audioCtx.createGain(); // Volume mestre.
+            osc.type = 'square'; // Forma de onda estridante.
+            osc.frequency.setValueAtTime(50, audioCtx.currentTime); // Extremamente grave, como um impacto sísmico.
+            ganho.gain.setValueAtTime(0.5, audioCtx.currentTime); // Mais alto que o resto dos efeitos.
+            ganho.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.6); // Ecoa por um pouco mais de meio segundo.
+            osc.connect(ganho); // Pluga circuito A no B.
+            ganho.connect(audioCtx.destination); // Pluga circuito B nas saídas.
+            osc.start(); // Toca grave.
+            osc.stop(audioCtx.currentTime + 0.6); // Silencia por fim.
+        } // Fim da função de dano vital.
+
+        function ajustarTamanhoTela() { // Função ativada na carga e sempre que a janela muda de tamanho.
+            larguraTela = window.innerWidth; // Descobre largura do navegador.
+            alturaTela = window.innerHeight; // Descobre altura do navegador.
+            canvas.width = larguraTela; // Informa a matriz de pixels do canvas.
+            canvas.height = alturaTela; // Mesma coisa pra altura, evitando aspecto esticado.
+            jogador.x = larguraTela / 2; // Coloca a coordenada X da nave cravada no meio horizontal.
+            jogador.y = alturaTela - 60; // Coloca a coordenada Y perto do rodapé.
+            criarEstrelas(); // Manda gerar o fundo de poeira cibernética.
+        } // Fim função de resize.
+        
+        window.addEventListener('resize', ajustarTamanhoTela); // Fica de prontidão vigiando esticões na janela do PC/Mobile.
+
+        function criarEstrelas() { // Gera o código Matrix caindo de fundo.
+            estrelas = []; // Purifica a lista velha apagando tudo.
+            for (let i = 0; i < 100; i++) { // Laço para desenhar 100 quadradinhos no fundo.
+                estrelas.push({ // Joga pra dentro do array o objeto formatado.
+                    x: Math.random() * larguraTela, // X aleatório pela tela toda.
+                    y: Math.random() * alturaTela, // Y aleatório também.
+                    tamanho: Math.random() * 2 + 1, // Espessura de 1 a 3 pixels.
+                    velocidade: Math.random() * 0.5 + 0.1 // Descida cadenciada letárgica independente do jogo.
+                }); // Fim inclusão na lista.
+            } // Fim do loop das estrelas.
+        } // Fim do método construtor do céu.
+
+        function desenharFundo() { // Chamado todo ciclo pra pintar base.
+            ctx.fillStyle = '#020208'; // Tinta quase preta, com traço azul marinho profundo.
+            ctx.fillRect(0, 0, larguraTela, alturaTela); // Rolo de pintura quadrado que apaga sujeira do quadro anterior.
+            
+            ctx.fillStyle = '#0f3'; // Tinta verde cibernético sombrio para o cenário de fundo.
+            estrelas.forEach(estrela => { // Varre as 100 estrelas pra atualiza-las.
+                ctx.fillRect(estrela.x, estrela.y, estrela.tamanho, estrela.tamanho); // Desenha pixel quadrado verde imitando dados bit a bit.
+                
+                estrela.y += estrela.velocidade; // Altera o Y somando a física pra descer.
+                if (estrela.y > alturaTela) { // Se tocou o chão do rodapé do Chrome...
+                    estrela.y = 0; // Volta ela pra altura das nuvens (0).
+                    estrela.x = Math.random() * larguraTela; // Gira roleta russa do X de novo pra variar visual.
+                } // Fim reposicionamento.
+            }); // Fim iterador de fundo.
+        } // Fim função de background.
+
+        function desenharJogador() { // Desenha o ícone que nos protege no rodapé.
+            ctx.save(); // Salva estado da paleta de cores para não manchar o resto da renderização.
+            ctx.translate(jogador.x, jogador.y); // Transfere a prancheta pro meio inferior, facilitando matemática.
+            
+            ctx.fillStyle = '#0f0'; // Cor verde matrix gritante.
+            ctx.shadowBlur = 15; // Brilho enevoado ao redor (efeito neon).
+            ctx.shadowColor = '#0f0'; // O brilho deve ser da mesma cor verde.
+            
+            ctx.beginPath(); // Abre bloco pra desenhar linhas poligonais customizadas.
+            ctx.moveTo(0, -30); // Ponto mestre: antena canhão (X zero central, Y menos 30 pra cima).
+            ctx.lineTo(25, 10); // Desce traço em diagonal pra borda direita.
+            ctx.lineTo(15, 20); // Achata pra dentro formando um trapézio lateral.
+            ctx.lineTo(-15, 20); // Linha reta pela base conectando pro lado esquerdo.
+            ctx.lineTo(-25, 10); // Sobe o trapézio pela esquerda.
+            ctx.closePath(); // Fecha automaticamente de volta lá na antena do topo.
+            ctx.fill(); // Pinta a massinha descrita acima de verde sólido e brilhoso.
+            
+            // Adiciona detalhe central de núcleo de processamento
+            ctx.fillStyle = '#fff'; // Pincel branco intenso.
+            ctx.shadowBlur = 5; // Brilho fraquinho.
+            ctx.beginPath(); // Novo shape.
+            ctx.arc(0, 5, 5, 0, Math.PI * 2); // Cria bolinha do núcleo (círculo 360 graus perfeito).
+            ctx.fill(); // Pinta núcleo.
+            
+            ctx.restore(); // Resgata pincel antigo pra não cagar a tela vizinha.
+        } // Encerra desenho do avatar.
+
+        function criarInimigo() { // Cuida do parto de uma nova string vilã caindo do céu.
+            const index = Math.floor(Math.random() * dicionario.length); // Sorteia número de gaveta inteiro baseado no tamanho do array de palavras.
+            const textoSorteado = dicionario[index]; // Pesca na gaveta do dicionario a string correspondente.
+            
+            ctx.font = 'bold 24px Courier New'; // Determina mentalmente a fonte gorda.
+            const larguraTexto = ctx.measureText(textoSorteado).width; // Pergunta ao contexto quantos pixels essa string vai usar no monitor.
+            
+            // Garante que o X (eixo horizontal) nunca nasça fora da margem da janela, usando min/max lógicos.
+            const posicaoX = Math.max(larguraTexto/2 + 20, Math.random() * (larguraTela - larguraTexto/2 - 20)); 
+            
+            inimigos.push({ // Estufa a lista empurrando um objeto novo (astróide de bits).
+                texto: textoSorteado, // A string atual, que vai ser dissecada letra a letra.
+                x: posicaoX, // Onde nasceu na reta horizontal.
+                y: -50, // Nasce escondido acima do teto invisível.
+                velocidade: velocidadeBase + (Math.random() * 0.2) // Velocidade regida pela fase mestre + pinguinho de aleatoriedade pra nao enfileirar.
+            }); // Finaliza injeção na array matriz.
+        } // Termina nascedouro.
+
+        function avancarFase() { // Subrotina que aumenta nível de caos do jogo.
+            fase++; // Adiciona nível um.
+            faseHtml.innerText = fase; // Notifica painel de HTML que passamos de nivel.
+            
+            velocidadeBase += 0.15; // Deixa o chumbo das pedras mais ligeiro (15% base mais rápido).
+            taxaSpawn = Math.max(1000, taxaSpawn - 400); // Reduz tempo que o gerador espera pra cuspir palavras (até o limite de 1 segundo mínimo).
+            
+            pontosParaProximaFase += 200; // As próximas fases exigem mais e mais pontos do que as anteriores, formando curva exponencial moderada.
+            
+            // Efeito visual de upgrade na tela
+            hud.style.color = '#ff0'; // Pinta hud amarelão rápido
+            setTimeout(() => { hud.style.color = '#fff'; }, 300); // Tira amarelão.
+        } // Encerra aumento de nivel.
+
+        function dispararEfeitoLaser(alvoX, alvoY) { // Roteirizador da faixa neon do canhão pro inimigo.
+            lasers.push({ // Joga o traço pra array do buffer frame.
+                x1: jogador.x, // Raiz na base (Canhão).
+                y1: jogador.y - 30, // Saída pela ponta antena.
+                x2: alvoX, // Pouso X.
+                y2: alvoY, // Pouso Y no centro geométrico da string no céu.
+                vida: 1.0 // Nível alfa (transparência) cheião de inicio (100%).
+            }); // Completa adicao de traço luminoso.
+        } // Fim desenha raio.
+
+        function criarEfeitoExplosao(posX, posY, cor) { // Spawner de confete/poeira visual de contato/fim.
+            for (let i = 0; i < 20; i++) { // Rodará vinte vez, parindo 20 detritos independentes.
+                const angulo = Math.random() * Math.PI * 2; // Joga pra qualquer lado aleatório num circulo total.
+                const vel = Math.random() * 5 + 1; // Puxão cinético entre leve e veloz estilhaçado.
+                particulas.push({ // Engessa na array visual particulas.
+                    x: posX, // Inicia exatamente do lugar X requerido.
+                    y: posY, // Inicia do local de choque Y.
+                    vx: Math.cos(angulo) * vel, // Transforma angulo e propulsão no eixo horizontal x matemático.
+                    vy: Math.sin(angulo) * vel, // Idem para queda/subida vertical y matemático.
+                    vida: 1.0, // Vida da faísca inteira.
+                    cor: cor // Carrega cor exigida que chamou a func (verde p/ erro, azul/amarela no hit).
+                }); // Push na pilha termina aqui.
+            } // Fechou iterador dos vinte entulhos celestiais.
+        } // Terminou factory de partícula.
+
+        function loopDoJogo(timestampAtual) { // Coração da parada: chamado a 60fps constantes pelo navegador de internet.
+            if (!jogoRodando) return; // Se a variável disseca está desativada, não desenha um pixel nem soma um cálculo, aborta o frame!
+
+            if (timestampAtual - tempoUltimoSpawn > taxaSpawn) { // Observa o cronômetro relógio de ticks universais vs tick anterior pra saber se já deu tempo da taxa.
+                criarInimigo(); // Puxa cordinha do criador.
+                tempoUltimoSpawn = timestampAtual; // Marca ponto de ponto eletronico com instante do exato milisegundo desse parto.
+            } // Fechou relogio ponto.
+
+            desenharFundo(); // Espalha massa de vidraceiro preta preenchendo as marcas de sangue do frame velho.
+
+            // LOOP 1: Atualização das Fagulhas Mágicas
+            for (let i = particulas.length - 1; i >= 0; i--) { // Rastreia for de trás pra frente (maior índice para zero) para não zoar as cadeiras se deletarmos algo no meio.
+                let p = particulas[i]; // Captura pó de estrela singular.
+                p.x += p.vx; // Aplica energia balística horizontal.
+                p.y += p.vy; // Aplica gravidade direcional inercial vertical.
+                p.vida -= 0.04; // Desgasta com a idade rápida do universo.
+
+                if (p.vida <= 0) { // Morto por invisibilidade celular?
+                    particulas.splice(i, 1); // Poda fora da linha do tempo.
+                } else { // Ainda brilha.
+                    ctx.fillStyle = p.cor; // Cor pre-combinada por seu mestre originador.
+                    ctx.globalAlpha = Math.max(0, p.vida); // Set alpha global pro canvas não acusar corrompimentos.
+                    ctx.beginPath(); // Bolinha start.
+                    ctx.arc(p.x, p.y, 2.5, 0, Math.PI * 2); // Formato bolinha pingo doce redondo 360.
+                    ctx.fill(); // Rolo verde preenche o pingo.
+                    ctx.globalAlpha = 1.0; // Desfaz as modificações de transparência estatais contextuais.
+                } // Fim analise pó mágico.
+            } // Fim for partículas inteiras.
+
+            // LOOP 2: Gerenciamento dos Tiros Eletrônicos em Neon
+            for (let i = lasers.length - 1; i >= 0; i--) { // De trás pra frente de novo amigo leitor.
+                let l = lasers[i]; // Captura facho luminoso único iterável instanciado.
+                l.vida -= 0.15; // O raio deve ofuscar em instantes curtíssimos que duram cerca de 6 a 8 frames no máximo.
+
+                if (l.vida <= 0) { // O brilho esmaeceu.
+                    lasers.splice(i, 1); // Retira da memória pra sempre e limpa lixo.
+                } else { // Atirou há quase nada.
+                    ctx.strokeStyle = `rgba(0, 255, 0, ${Math.max(0, l.vida)})`; // Aplica cor de linha com máscara de alfa variável no RGBA formatação.
+                    ctx.lineWidth = 5; // Trilha grossa caneta hidrocor robusta.
+                    ctx.beginPath(); // Traço aberto.
+                    ctx.moveTo(l.x1, l.y1); // Ponta raiz.
+                    ctx.lineTo(l.x2, l.y2); // Alvo destino final.
+                    ctx.stroke(); // Executa rabisco no monitor LCD/LED efetivo e visual.
+                } // Fim condicao raio vida estática.
+            } // Fim for raios l.
+
+            // LOOP 3: Palavras de Inimigos e Colisão (Ameaças Físicas/Strings Cadentes)
+            ctx.font = 'bold 26px Courier New'; // Set padrão negrito gordinho das letras para sobressaírem no fundo negro profundo sem ser engolido pelo ruído do céu constelacional do back final iterado na linha anterior acima antes.
+            ctx.textAlign = 'center'; // Pivô central geométrico cravado ao meio da corda para alinhar as partes das palavras aparadas.
+
+            for (let i = inimigos.length - 1; i >= 0; i--) { // For retroativo seguro sem gambiarras espaciais.
+                let inimigo = inimigos[i]; // Coleta a infeliz pedrada literal codificada da iteração presente de agora.
+                inimigo.y += inimigo.velocidade; // A lei infalível e pesada de Newton aplica vetor pra baixo empurrando no penhasco Y.
+
+                if (inimigo === alvoAtual) { // Perguntamos ao destino se fomos nós mesmos quem sentenciamos esta pobre string com a mira focada trava-letra.
+                    ctx.fillStyle = '#ff0'; // Muda paleta pro amarelão gema aviso sol amarelo radiante alerta perigo.
+                    ctx.shadowBlur = 10; // Liga radiografia.
+                    ctx.shadowColor = '#ff0'; // Sombra idem sol.
+                } else { // String pacífica ou ainda não detectada pelas garras focais da nave principal controladora tecladistica base.
+                    ctx.fillStyle = '#fff'; // Tinta neve pura branca base inicial sem poluição focal central trava cores.
+                    ctx.shadowBlur = 5; // Aceso fraco tipo lâmpada fluorcente velha.
+                    ctx.shadowColor = '#0f0'; // Esverdeado halo misterioso cibernético hackerman green theme color base shadow root path.
+                } // Fechou controle de pintura especial individualizada.
+
+                ctx.fillText(inimigo.texto, inimigo.x, inimigo.y); // Grava a faca do pintor cortando a string exata na posição espacial exata.
+                ctx.shadowBlur = 0; // Desliga luz pra não pintar os vizinhos sujos de verde luz retroativo estourando ram da render processadora.
+
+                // CHECAGEM MESTRE DE COLISÃO
+                if (inimigo.y > jogador.y - 20) { // Se bateu: Se o umbigo da palavra rebaixou mais que a gola da nave - 20 pixeis segurança hitbox folga margem tolerancia limite chao base.
+                    
+                    // TOMOU DANO!
+                    vidas--; // Arranca friamente uma vida do coitado coraçãozinho inteiro variavel numero decresce.
+                    vidasHtml.innerText = vidas; // Notifica o inspetor HTML visual DOM document layout para pintar string numerica 2 1 0 atualizada tela pontuador HUD.
+                    
+                    criarEfeitoExplosao(inimigo.x, jogador.y, '#f00'); // Sangue no asfalto: Cospe pólas e destroços vermelhos rubros morte na coordenada exata X da batida fatídica do desastre e do contato.
+                    tocarSomDano(); // Alarme acústico da dor com grave batida e sininho rasgado sawtooth de machucado alert trigger.
+                    
+                    // Remove do mundo.
+                    inimigos.splice(i, 1); // Aniquila a ameaça que fatiou o navio limando da array.
+                    
+                    if (inimigo === alvoAtual) { // Se foi morta no fogo cruzado mas era nossa obsessão mira alvo atual lock-on focada antes de se espatifar nela...
+                        alvoAtual = null; // A mira precisa estourar e resetar pra nulo senao os dedos teclados caem em vazio nulo buraco negro null object reference bug crasher loop fatal erro!
+                    } // Fim tratamento null mestre limpo higienizado livre bug focado mestre refaz base limpa solta amarras trava mestre clear lock target false.
+
+                    if (vidas <= 0) { // Verificação necrotério ativada para atestado final zero corações vitais restando de fato zero?
+                        finalizarJogo(); // Manda pra guilhotina e congela tela tranca tramelas fim do loop game over total perca de estagio nivel.
+                        return; // Trava imediata da catraca parando tudo ali sem andar pro proximo if ou else do bloco sem freio, breca giro, trava request animation, cancela mestre.
+                    } // Fim analise pericial de vivos.
+                } // Fim colisão danosa catastrófica if condition wall hit limit boundary check pass true end block limit condition if close statement.
+            } // Fim loop que enfileirou e desceu e checou todas as ameaças espaciais literais caindo.
+
+            desenharJogador(); // Pinta base em cima de lixos gráficos escondendo lasers perdidos por baixo.
+
+            idAnimacao = requestAnimationFrame(loopDoJogo); // O motor diz "Virei a manivela, me chame daqui a 16 milissegundos para eu rodar de novo se eu nao morri!" loop cycle endless wheel hamster engine turn on go run script self invoke callback window API handler tick frame sync monitor hardware Hz rate speed.
+        } // Acabou bloco gigante monstruoso colossal de função principal do fluxo vida game.
+
+        window.addEventListener('keydown', (e) => { // Planta escuta nativa para afundamento de teclas brutais plásticas teclado gamer periférico input.
+            if (!jogoRodando) return; // Barreira protetora para mortos que apertam tecla sem querer no desespero pos-obito.
+
+            // RESOLUÇÃO DE BUG DO FIREFOX (Quick Find Bar Fix Preventer Override)
+            if (/^[a-zA-Z]$/.test(e.key)) { // Expressão regular regex caçadora purista: Aceita só se for unica literal A, B, C..Z solteira crua isolada não composta alt shift ctrl esc f1 meta space barra numpad.
+                e.preventDefault(); // Dá um tapa na mão do Navegador Mozilla Firefox Safari ou Edge impedindo de rolar a pagina, ou abrir barrinha busca la em baixo no esquerdo rodapé infernal! Bloqueio Mestre Comportamento Padrao Navegador Anulado!
+                
+                const letra = e.key.toUpperCase(); // Fornece fôlego caixa alta maiúscula pra bater com nosso Dicionario engomado grande sem erro casesensitive to uppercase converter cast parser.
+
+                if (alvoAtual !== null) { // BIFURCAÇÃO UM: Tropa de elite já encontrou suspeito engatilhado no visor amarelo lock-on state true target not empty?
+                    
+                    if (alvoAtual.texto[0] === letra) { // Letra afundada bate de frente identica com primeiríssima letra ponta navalha (indice char index 0 array text string array)?
+                        
+                        // ACERTO NO ALVO MÍOPE COMPROVADO.
+                        alvoAtual.texto = alvoAtual.texto.substring(1); // Faca ninja: Fatia fora a primeira inicial deixando só as tripas string pro fim encolhendo substr string cut remover first character.
+                        
+                        dispararEfeitoLaser(alvoAtual.x, alvoAtual.y); // Pede pra maquina do tempo pintar o risco da bala pro futuro.
+                        criarEfeitoExplosao(alvoAtual.x, alvoAtual.y, '#0f0'); // Faz sair faísca de tinta esmeralda cibernética da pele da letra atingida em cheio.
+                        tocarSomLaser(); // Som estala no ouvido.
+                        
+                        if (alvoAtual.texto.length === 0) { // O esqueleto sumiu inteiro? A corda inteira quebrou se dissipando zero char left in object string buffer properties zero out false true check string emptiness limit?
+                            // DESTRUIÇÃO CONFIRMADA ELIMINADO K.I.A
+                            criarEfeitoExplosao(alvoAtual.x, alvoAtual.y, '#0ff'); // Solta rojão cerimonial grande azul explodindo corpo inerte no abismo astral sem fundo negro matrix space map void.
+                            tocarSomExplosao(); // Efeito booom com terra abafada caindo ruidoso branco filtro biquad bass low pass effect audivel.
+                            
+                            const idx = inimigos.indexOf(alvoAtual); // Acha ID gaveta desse finado na necropsia mortuária do loop varrido.
+                            if (idx > -1) inimigos.splice(idx, 1); // Ranca com pinça pinça de index extração fora exterminador matriz object remove purge.
+                            
+                            // GERENCIA PROGRESSO E PONTOS
+                            pontuacao += 100; // Toma 100 pontos prêmio caçador generosidade level design baseline score points plus math value incrementing.
+                            progressoFase += 100; // Carrega a barra secreta de especial que mede quando o cara sobe de cinto/fase level bar xp limit exp grow hidden gauge tracker measure limit math add acumulator.
+                            pontuacaoHtml.innerText = pontuacao; // Printa pra UI interface grafica demente HTML span elemento pra mostrar riqueza score placar numérico global pontuador update inner textual text DOM manipulation interface layout string.
+                            
+                            if (progressoFase >= pontosParaProximaFase) { // Copo de exp XP vazou cheião até borda limite fase threshold point hit mark overpass max point phase condition met level up rank up?
+                                progressoFase = 0; // Esvazia o balde pra proxima contagem xp clean exp bar flush.
+                                avancarFase(); // Chama o mestre capataz pra subir a corda amarrar pescoço da velocidade e meter o louco no level superior subir fase dificuldade.
+                            } // Fim if nivel subiu xp farm.
+                            
+                            alvoAtual = null; // A MÁGICA SALVADORA REPETIDA MIL VEZES. DESTRAVA A MIRA PRA PERMITIR NOVA CAÇADA COM BOTA DEDO LETRA EM BRANCO PROXIMA CAÇADA RESET VAR RESET BOOLEAN NULL RESET LIMPA ESTADO ALVO LIMPO CAÇA LIMPA ZERADO DESFOCO LIMPEZA MIRA NULL CATCHER.
+                        } // Fecha if verificador destroços palavra zerada vazio check complete destruct.
+                    } else { // Erro grotesco teclado gordo fat finger dedão desvio tecla lateral misshit typo erro dactilografico error input mismatch check else false route error key.
+                        tocarSomErro(); // Xinga ele sonora acusticamente com frequencia serra dente serrada 150hz suja distorcida buzz beep wrong answer no button false flag tone.
+                    } // Fim if check acerto.
+                    
+                } else { // BIFURCAÇÃO DOIS: Alvo tava nulo, moscas passeando ninguem fisgado mira branca frouxa looking seeking state hunt lock empty nothing to lose mode on.
+                    
+                    // Varre a floresta espinhenta. Quais macacos no galho atual caem se eu atirar com a letra apertada inicial idêntica neles check primeira string de todas varredura mass filter search query array array loop match text match init head zero character find index char same match equals strict type uppercase letter input equals e.key?
+                    let possiveisAlvos = inimigos.filter(inim => inim.texto[0] === letra); // Joga peneira e guarda só quem sobreviveu em sub matriz.
+                    
+                    if (possiveisAlvos.length > 0) { // Opa a peneira pegou sujeira ou ouro, veio alguem que obedece simetria perfeita inicial! Find true success results array count positive length higher above bigger zero elements exists check condition pass.
+                        
+                        possiveisAlvos.sort((a, b) => b.y - a.y); // Faz eles entrarem em fila indiana pelo mais rebaixado perto da faca nave chao base solo morte perigo sort decrescente desc order arrange order list sort method callback func subtraction math rank bottom list priority danger threat proximity radar sorting math formula close proximity Y coordinate height window height max pixel bottom danger zone priority assignment lock index.
+                        
+                        alvoAtual = possiveisAlvos[0]; // Captura pelo pé amarra corda no mais prioritário vagabundo caindo no solo pilar primeiro da lista indexado [zero]. Lock On state transition trigger flag on change var memory reference save focus entity lock anchor.
+                        
+                        alvoAtual.texto = alvoAtual.texto.substring(1); // Cepa fatiadora espada cega arranca logo a cabeca primogênita letra do desgraçado pq o hit inicial contou ne. First blood substring slash slice remove chop head decapitation string manipulation string modifier initial index drop.
+                        
+                        dispararEfeitoLaser(alvoAtual.x, alvoAtual.y); // Tiro de boas vindas com as honras draw beam shoot logic graphical interface visual rendering path.
+                        criarEfeitoExplosao(alvoAtual.x, alvoAtual.y, '#ff0'); // Amarelão radiante fúria divina avisando no monitor do zezao lock on amarelo traçado faísca amarela warning particle spawn emiter blast.
+                        tocarSomLaser(); // Barulho padrão arma base level trigger.
+                        
+                        // Checagem bizarra do anão de letra unica
+                        if (alvoAtual.texto.length === 0) { // Jogado na parede e morreu de primera hit single letter kill one shot frag instakill sniper headshot limit border case handler.
+                            criarEfeitoExplosao(alvoAtual.x, alvoAtual.y, '#0ff'); // Solta rojao.
+                            tocarSomExplosao(); // Boom somatico.
+                            const idx = inimigos.indexOf(alvoAtual); // Acha obito fileira necroterio.
+                            if (idx > -1) inimigos.splice(idx, 1); // Corta necropsia folha corrida db purge.
+                            pontuacao += 100; // Da pontinho trocado prêmio consolação recompensa reward system point injection coin wallet incrementing number add.
+                            progressoFase += 100; // Da exp.
+                            pontuacaoHtml.innerText = pontuacao; // Display DOM score text update string convert manipulation ui html node element property mutate visual text.
+                            
+                            if (progressoFase >= pontosParaProximaFase) { // Se vazou copo upa nela up level up.
+                                progressoFase = 0; // zera copo reset container cap clean gauge empty clear reset status state baseline reset empty glass point drop value assign zero number initialization phase check complete hook clear step end finish point baseline clear variable assign operation reset parameter.
+                                avancarFase(); // Chama funca capataz subir corda upar.
+                            } // fim exp single.
+                            
+                            alvoAtual = null; // Libera coleira caça pro proximo target unbind flag release entity hook memory variable clear assignment null default empty pointer release target clear reset action end limit stop case.
+                        } // Fim tratamento anão de uma letra 1 shot 1 kill true bool bool conditio pass limit case handle border scenario edge boundary catch handler logic safety net code piece execution path branch block statement evaluation test check length object element parameter compare truth test match false false logic structure check logic.
+                        
+                    } else { // Peneira vazou agua suja não fisgou bosta nhenhuma erro feio teclado errado ninguem comeca com a asneira tocada dedao grosso miss fire no target null pointer miss catch trigger error state no flag hit no lock free miss empty net catch failure.
+                        tocarSomErro(); // Avisa sonora pro cara deixar de ser orelha apito feio buzer sawtooth warning false tone wrong note fail test sound signal buzz bad error failure mismatch alert no pass false truth tone output speaker.
+                    } // Fim if achou.
+                } // Fim if tava alvo livre ou locked focado foca check route state lock var status mode boolean simulation type switch branch condition check check true false true true bool boolean.
+            } // Fim if regex test alfa az check alfa.
+        }); // Fim event listerner gigantesto maciço.
+
+        function iniciarJogo() { // Reset botão play ligar ignição motor carro.
+            iniciarAudio(); // Libera api web sound pq os cara chato dos Browser enche o saco limitando play sem click human interaction click bind activate api object boot permission web interface media boot sequence pass.
+            
+            inimigos = []; // Limpa sujeira velho jogo lixo array reset clear empty.
+            lasers = []; // Limpa po de fada.
+            particulas = []; // Limpa explosao ar.
+            alvoAtual = null; // limpa trava pointer.
+            
+            pontuacao = 0; // zera placar int num valor numero zero inicial math origin reset num start point score.
+            vidas = 3; // Fornece ao campeao três coracoes macios pulsnates chances erro try limits tries chance count number integer 3 max health pool health start health base origin status condition setup config var assign int.
+            fase = 1; // zera pro andor de chao fase tutorial nivel 1 start level config.
+            progressoFase = 0; // Zera barra exp farm 0 int.
+            pontosParaProximaFase = 500; // Set limitador basico barreira bar phase limit gate threshold wall score limits require.
+            
+            pontuacaoHtml.innerText = pontuacao; // Update GUI placa span text content property node change html DOM write number string stringifier layout update info score baseline UI text.
+            vidasHtml.innerText = vidas; // Update dom vidas hearts hp hit points.
+            faseHtml.innerText = fase; // update dom level nivel andar phase stage.
+            
+            velocidadeBase = 0.2; // lentidao braba caramujo start config difficulty easy baseline mode slow var init config param set limit parameter number decimal value limit set reset assignment memory allocate config easy path config basic root config mode config root baseline params parameter setting config reset action var clear number init root default config setting value root assignment variable var setter configuration root setup baseline var slow mode path.
+            taxaSpawn = 4000; // demorar decada param time delay ms config timer loop sleep timer limits bounds time limit trigger parameter configuration time bounds trigger check limits config loop time setup set params ms timer setup root default variable var param configuration.
+            
+            telaInicial.classList.add('escondido'); // Joga cimento no popup inicial css class append.
+            telaFim.classList.add('escondido'); // joga cimento velorio tela mortem over display none css manip class add function method remove sight element gui css invisible class hide display logic UI layout manipulation classlist toggle setter state boolean css property add class append string hide modal modal box layout window screen hide action command state change layout remove clear css hidden attribute add property true mode hide gui popup screen.
+            hud.classList.remove('escondido'); // desengessa o canto tela placarzinho css action.
+            
+            ajustarTamanhoTela(); // Recalcula régua janela pixeis window dimensoes resize update call func routine size width h update draw call math calc bounds check fix margins viewport reset orientation handler event callback update call refresh math setup bounds variables matrix window params check layout measure func execution setup viewport fix handler run func procedure script subroutine procedure.
+            jogoRodando = true; // Chave mestre vira o quadro pra aceso switch bool state mestre master engine key start ignition flag loop unblock bypass barrier open gate true state flag set action loop active on true logic gate bool assign boolean.
+            tempoUltimoSpawn = performance.now(); // Grava na caneta instante universo atual tick timer boot time marker record time origin save temporal point snapshot ms record value parameter global config variable limit check timer base root limit record origin time base tick loop save performance time track API object dot now call execution trace trace call root boot parameter.
+            
+            criarInimigo(); // Puxa logo a orelha pro nascer primeiro sem ter q espera ciclo de 4s pro vazio n ficar solido feio bug vazio.
+            idAnimacao = requestAnimationFrame(loopDoJogo); // Enfia a mao na engrenagem loop loop function start frame sync draw browser engine gpu hook render call animation start loop API native function frame rate req handler.
+        } // Encerra startup boot method.
+
+        function finalizarJogo() { // Sentenciador morte final fatal state.
+            jogoRodando = false; // fecha trava booleana catraca porta corta loop bloqueia game bool flag stop false limit lock block loop key off switch condition block engine flag state halt state.
+            cancelAnimationFrame(idAnimacao); // Dá facada no coracao do motor gpu renderer browser anim cancel break halt stop request API native pause frame clear kill process thread halt execution.
+            
+            hud.classList.add('escondido'); // esconde placarinho.
+            faseFinal.innerText = fase; // Joga pra tela vermelha morte o dado fase over game over score set text display node mutate property update.
+            pontuacaoFinal.innerText = pontuacao; // Joga tb o score morto score copy value parse set.
+            telaFim.classList.remove('escondido'); // Retira capa chumbo invisivel css class e deixa rolar a cena velorio menu overlay UI show popup gui red alert danger screen toggle classlist action display on visible layout update method procedure trigger event ui manip event display ui element popup layout visibility toggle on block class manipulator function handler modal state show trigger layout update.
+        } // fim kill process function method.
+
+        document.getElementById('btnIniciar').addEventListener('click', iniciarJogo); // Esperando pacientemente click botao UI inicial.
+        document.getElementById('btnReiniciar').addEventListener('click', iniciarJogo); // Idem click velorio UI botao retry revive restart.
+
+        ajustarTamanhoTela(); // Setup inicial cru calc viewport limits size get param init.
+        desenharFundo(); // Pinta base negra vazio draw space black void dark render.
+        desenharJogador(); // Pinta totem verde mestre icone canhao player ship static render before boot no frame request draw call once procedure script limit start config background graphic output display boot screen.
+
+    </script>
+</body>
+</html>
